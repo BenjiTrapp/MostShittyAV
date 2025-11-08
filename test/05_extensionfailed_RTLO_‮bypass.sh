@@ -1,0 +1,2 @@
+#!/usr/bin/bash
+echo "THIS COULD BE A MALICIOUS FUNCTION CALL"
