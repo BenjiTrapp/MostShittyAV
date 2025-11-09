@@ -1,0 +1,348 @@
+name: Build and Release MostShittyAV
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v1.0.0
+  workflow_dispatch:  # Allow manual trigger
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest]
+        include:
+          - os: windows-latest
+            nim_arch: amd64
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Nim
+        uses: jiro4989/setup-nim-action@v1
+        with:
+          nim-version: '2.0.4'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install dependencies
+        run: |
+          nimble install -y winim
+
+      - name: Build AMSI Provider DLL (New Wrapper)
+        run: |
+          nim c --app:lib --cpu:${{ matrix.nim_arch }} -d:release --out:MostShittyAVWrapper.dll nim_amsi_wrapper_dll.nim
+        
+      - name: Build Scanner Executable (Standalone - Original)
+        run: |
+          nim c --cpu:${{ matrix.nim_arch }} -d:release --out:MostShittyAVScanner.exe nim_antimalware_sim.nim
+
+      - name: Verify builds
+        run: |
+          $success = $true
+          
+          if (Test-Path "MostShittyAVWrapper.dll") {
+            Write-Host "✓ DLL built successfully (AMSI Provider Wrapper)" -ForegroundColor Green
+            $dll = Get-Item "MostShittyAVWrapper.dll"
+            Write-Host "  Size: $([math]::Round($dll.Length / 1KB, 2)) KB"
+          } else {
+            Write-Error "DLL build failed"
+            $success = $false
+          }
+          
+          if (Test-Path "MostShittyAVScanner.exe") {
+            Write-Host "✓ EXE built successfully (Standalone Scanner)" -ForegroundColor Green
+            $exe = Get-Item "MostShittyAVScanner.exe"
+            Write-Host "  Size: $([math]::Round($exe.Length / 1KB, 2)) KB"
+          } else {
+            Write-Error "EXE build failed"
+            $success = $false
+          }
+          
+          if (-not $success) {
+            exit 1
+          }
+          
+          Write-Host "`nBuild Summary:" -ForegroundColor Cyan
+          Write-Host "  DLL: AMSI Provider (system-wide, requires registration)" -ForegroundColor Gray
+          Write-Host "  EXE: Standalone Scanner (no installation needed)" -ForegroundColor Gray
+        shell: pwsh
+
+      - name: Create build info
+        run: |
+          $info = @"
+          MostShittyAV Build Information
+          ==============================
+          Build Date: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss UTC")
+          Nim Version: 2.0.4
+          Architecture: ${{ matrix.nim_arch }}
+          OS: ${{ matrix.os }}
+          
+          Components:
+          
+          1. AMSI Provider DLL (New - System Integration)
+             - MostShittyAVWrapper.dll - AMSI Provider DLL
+             - Integrates with Windows AMSI system-wide
+             - Requires Administrator registration
+             - Provider GUID: {2E5D8A62-77F9-4F7B-A90B-1C8F6E9D4C3A}
+          
+          2. Standalone Scanner EXE (Original - No Installation)
+             - MostShittyAVScanner.exe - Standalone file scanner
+             - Works independently without registration
+             - Can scan files directly from command line
+             - No admin privileges required
+          
+          Scripts & Tools:
+          - build_and_register.ps1  - DLL registration automation
+          - quick_build.ps1         - Quick rebuild script
+          
+          Documentation:
+          - BUILD_GUIDE.md          - Build instructions
+          - TEST_REGISTERED_PROVIDER.md - Testing with Process Monitor
+          - WORKING_SOLUTION.md     - Technical details
+          
+          Installation Options:
+          
+          Option A - AMSI Provider (System-wide):
+            1. Extract all files
+            2. Run PowerShell as Administrator
+            3. Execute: .\build_and_register.ps1 -BuildAndRegister
+            4. Verify: .\build_and_register.ps1 -Status
+            5. Test: Start new PowerShell window
+          
+          Option B - Standalone Scanner (No Installation):
+            1. Extract MostShittyAVScanner.exe
+            2. Run: .\MostShittyAVScanner.exe <file1> [file2] ...
+            3. Example: .\MostShittyAVScanner.exe malware.exe
+          
+          For detailed instructions, see BUILD_GUIDE.md
+          "@
+          $info | Out-File -FilePath BUILD_INFO.txt -Encoding UTF8
+        shell: pwsh
+
+      - name: Package release artifacts
+        run: |
+          $version = "${{ github.ref_name }}"
+          if (-not $version.StartsWith("v")) {
+            $version = "latest"
+          }
+          
+          # Create release directory
+          New-Item -ItemType Directory -Force -Path "release"
+          
+          # Copy binaries
+          Copy-Item "MostShittyAVWrapper.dll" "release/"
+          Copy-Item "MostShittyAVScanner.exe" "release/"
+          
+          # Copy scripts
+          Copy-Item "build_and_register.ps1" "release/"
+          Copy-Item "quick_build.ps1" "release/"
+          Copy-Item "check_provider_is_running.ps1" "release/" -ErrorAction SilentlyContinue
+          
+          # Copy documentation
+          Copy-Item "BUILD_GUIDE.md" "release/"
+          Copy-Item "TEST_REGISTERED_PROVIDER.md" "release/"
+          Copy-Item "WORKING_SOLUTION.md" "release/"
+          Copy-Item "USAGE_COMPARISON.md" "release/"
+          Copy-Item "README.md" "release/"
+          Copy-Item "BUILD_INFO.txt" "release/"
+          
+          # Create archive
+          $archiveName = "MostShittyAV-$version-windows-${{ matrix.nim_arch }}.zip"
+          Compress-Archive -Path "release/*" -DestinationPath $archiveName
+          
+          Write-Host "Created release archive: $archiveName"
+          Get-Item $archiveName | Select-Object Name, Length
+        shell: pwsh
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: MostShittyAV-${{ matrix.os }}-${{ matrix.nim_arch }}
+          path: |
+            MostShittyAV-*.zip
+            BUILD_INFO.txt
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display structure
+        run: ls -R artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/**/*.zip
+            artifacts/**/BUILD_INFO.txt
+          body: |
+            ## MostShittyAV Release ${{ github.ref_name }}
+            
+            ### 🎯 Two Ways to Use MostShittyAV
+            
+            #### 1️⃣ AMSI Provider (System-Wide Integration) - NEW! 
+            - **MostShittyAVWrapper.dll** - Integrates with Windows AMSI
+            - Automatically scans content in PowerShell, Windows Defender, etc.
+            - Requires Administrator privileges for registration
+            - System-wide protection
+            
+            #### 2️⃣ Standalone Scanner (No Installation) - ORIGINAL
+            - **MostShittyAVScanner.exe** - Command-line file scanner
+            - Works immediately without registration
+            - Scan files on-demand
+            - No admin privileges required
+            
+            ### 📦 What's Included
+            
+            - **MostShittyAVWrapper.dll** - AMSI Provider DLL (new wrapper)
+            - **MostShittyAVScanner.exe** - Standalone Scanner (original)
+            - **Scripts** - Build and registration automation
+            - **Documentation** - Complete setup and testing guides
+            
+            ### 🚀 Quick Start
+            
+            #### Option A: Use Standalone Scanner (Easiest)
+            
+            1. Download and extract the ZIP
+            2. Open PowerShell/CMD in the extracted folder
+            3. Run: `.\MostShittyAVScanner.exe <file-to-scan>`
+            4. Example: `.\MostShittyAVScanner.exe malware.exe`
+            
+            ✅ No installation, no admin rights needed!
+            
+            #### Option B: Install AMSI Provider (System Integration)
+            
+            1. Download and extract the ZIP file
+            2. **Run PowerShell as Administrator**
+            3. Execute: `.\build_and_register.ps1 -BuildAndRegister`
+            4. Verify: `.\build_and_register.ps1 -Status`
+            5. Test: Start a new PowerShell window
+            
+            ✅ Integrates with Windows AMSI system-wide!
+            
+            ### Provider Information
+            
+            - **GUID:** `{2E5D8A62-77F9-4F7B-A90B-1C8F6E9D4C3A}`
+            - **Name:** MostShittyAVProvider
+            - **Architecture:** x64 (amd64)
+            
+            ### Documentation
+            
+            - See `BUILD_GUIDE.md` for complete build instructions
+            - See `TEST_REGISTERED_PROVIDER.md` for testing with Process Monitor
+            - See `WORKING_SOLUTION.md` for technical details
+            
+            ### Requirements
+            
+            - Windows 10/11 (x64)
+            - PowerShell 5.1 or later
+            - Administrator privileges (for registration)
+            
+            ### Security Notice
+            
+            ⚠️ This is an educational project demonstrating AMSI provider development.
+            The provider registers system-wide and will be loaded by AMSI-aware applications.
+            Use in test environments only.
+            
+            ### 🧪 Testing
+            
+            #### Testing Standalone Scanner:
+            ```powershell
+            # Scan a single file
+            .\MostShittyAVScanner.exe test_file.exe
+            
+            # Scan multiple files
+            .\MostShittyAVScanner.exe file1.txt file2.ps1 file3.exe
+            ```
+            
+            #### Testing AMSI Provider:
+            After registration, start a new PowerShell window to load the provider:
+            ```powershell
+            # In a NEW PowerShell window
+            .\build_and_register.ps1 -Status
+            
+            # The provider will now scan PowerShell commands automatically
+            Write-Host "MALWARE"  # Should trigger if "malware" signature is detected
+            ```
+            
+            For detailed testing with Process Monitor, see `TEST_REGISTERED_PROVIDER.md`.
+            
+            ### 🗑️ Uninstall
+            
+            **Standalone Scanner:** Just delete the EXE - no uninstall needed!
+            
+            **AMSI Provider:**
+            ```powershell
+            # As Administrator
+            .\build_and_register.ps1 -Unregister
+            ```
+            
+            ---
+            
+            Built with Nim 2.0.4 | Architecture: amd64 | Platform: Windows
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-on-manual:
+    name: Manual Build (No Release)
+    runs-on: windows-latest
+    if: github.event_name == 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Nim
+        uses: jiro4989/setup-nim-action@v1
+        with:
+          nim-version: '2.0.4'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install dependencies
+        run: nimble install -y winim
+
+      - name: Build AMSI Provider DLL (New Wrapper)
+        run: nim c --app:lib --cpu:amd64 -d:release --out:MostShittyAVWrapper.dll nim_amsi_wrapper_dll.nim
+        
+      - name: Build Scanner Executable (Standalone - Original)
+        run: nim c --cpu:amd64 -d:release --out:MostShittyAVScanner.exe nim_antimalware_sim.nim
+
+      - name: Verify manual builds
+        run: |
+          Write-Host "`n=== Build Summary ===" -ForegroundColor Cyan
+          if (Test-Path "MostShittyAVWrapper.dll") {
+            $dll = Get-Item "MostShittyAVWrapper.dll"
+            Write-Host "✓ DLL: $([math]::Round($dll.Length / 1KB, 2)) KB (AMSI Provider)" -ForegroundColor Green
+          }
+          if (Test-Path "MostShittyAVScanner.exe") {
+            $exe = Get-Item "MostShittyAVScanner.exe"
+            Write-Host "✓ EXE: $([math]::Round($exe.Length / 1KB, 2)) KB (Standalone Scanner)" -ForegroundColor Green
+          }
+        shell: pwsh
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: manual-build-artifacts
+          path: |
+            MostShittyAVWrapper.dll
+            MostShittyAVScanner.exe
