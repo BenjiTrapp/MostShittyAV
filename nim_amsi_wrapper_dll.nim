@@ -1,7 +1,9 @@
 when defined(windows):
     import winim/lean
     import winim/com
+    import os
 
+    # Import the complete scanner module - we use its scan() method
     import nim_antimalware_sim
 
     const PROVIDER_GUID = "{2E5D8A62-77F9-4F7B-A90B-1C8F6E9D4C3A}"
@@ -36,27 +38,70 @@ when defined(windows):
     proc AddRefImpl(this: pointer): ULONG {.stdcall.} = 1
     proc ReleaseImpl(this: pointer): ULONG {.stdcall.} = 1
 
+    # AMSI Scan implementation - uses nim_antimalware_sim scanner
     proc ScanImpl(this: pointer, session: pointer, request: pointer, pResult: ptr UINT): HRESULT {.stdcall.} =
+        ## Called by AMSI when content needs to be scanned
+        ## For demo: writes buffer to temp file, scans with nim_antimalware_sim, deletes temp file
         try:
-            if request == nil:
+            echo "AMSI Provider: ScanImpl called"
+            
+            if request == nil or pResult == nil:
+                echo "AMSI Provider: Invalid arguments"
                 if pResult != nil: pResult[] = 0
                 return E_INVALIDARG
 
-            let cpath = cast[cstring](request)
-            if cpath == nil:
-                if pResult != nil: pResult[] = 0
-                return E_INVALIDARG
-
-            let path = $cpath
-            var demoProv = LoggingAntimalwareProvider(name: "MostShittyAVScanner (from DLL)")
-            let ok = demoProv.scan(path)
-            if pResult != nil:
-                if ok: pResult[] = 0 else: pResult[] = 1
-            return S_OK
-        except OSError:
-            if pResult != nil: pResult[] = 0
-            return HRESULT(ERROR_INVALID_DATA)
-        except:
+            # Read content from buffer
+            let contentPtr = cast[ptr UncheckedArray[byte]](request)
+            var content: seq[byte] = @[]
+            
+            # Read up to 8KB (AMSI typically sends script content)
+            const maxLen = 8192
+            for i in 0..<maxLen:
+                let b = contentPtr[i]
+                if b == 0:  # Null terminator
+                    break
+                content.add(b)
+            
+            if content.len == 0:
+                echo "AMSI Provider: Empty content, marking as clean"
+                pResult[] = 0
+                return S_OK
+            
+            echo "AMSI Provider: Scanning ", content.len, " bytes"
+            
+            # Write to temp file so we can use the existing scanner
+            let tempPath = getTempDir() / "amsi_scan_" & $getCurrentProcessId() & ".tmp"
+            try:
+                let f = open(tempPath, fmWrite)
+                discard f.writeBytes(content, 0, content.len)
+                f.close()
+                
+                # Use the existing scanner from nim_antimalware_sim
+                var provider = LoggingAntimalwareProvider(name: "MostShittyAV AMSI Provider")
+                let isClean = provider.scan(tempPath)
+                
+                # Clean up temp file
+                removeFile(tempPath)
+                
+                # Set AMSI result
+                if isClean:
+                    pResult[] = 0  # AMSI_RESULT_CLEAN
+                    echo "AMSI Provider: Result = CLEAN"
+                else:
+                    pResult[] = 32768  # AMSI_RESULT_DETECTED
+                    echo "AMSI Provider: Result = DETECTED"
+                
+                return S_OK
+                
+            except:
+                # Clean up on error
+                if fileExists(tempPath):
+                    try: removeFile(tempPath)
+                    except: discard
+                raise
+            
+        except Exception as e:
+            echo "AMSI Provider: Exception in ScanImpl: ", e.msg
             if pResult != nil: pResult[] = 0
             return E_FAIL
 
