@@ -1,4 +1,4 @@
-# build_and_register.ps1
+﻿# build_and_register.ps1
 # Complete workflow to build and register the AMSI provider
 #
 # Usage:
