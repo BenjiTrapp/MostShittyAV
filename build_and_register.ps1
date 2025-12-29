@@ -17,7 +17,7 @@ param(
 $PROVIDER_GUID = "{2E5D8A62-77F9-4F7B-A90B-1C8F6E9D4C3A}"
 $PROVIDER_NAME = "MostShittyAVProvider"
 $DLL_NAME = "MostShittyAVWrapper.dll"
-$SOURCE_FILE = "nim_amsi_wrapper_dll.nim"
+$SOURCE_FILE = "nim_amsi_wrapper_dll_simple.nim"
 
 function Test-IsAdmin {
     $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -43,7 +43,7 @@ function Build-DLL {
     
     # Build with Nim
     Write-Host "Compiling $SOURCE_FILE..." -ForegroundColor Cyan
-    $buildCmd = "nim c --app:lib --cpu:amd64 --out:$DLL_NAME $SOURCE_FILE"
+    $buildCmd = "nim c --app:lib --cpu:amd64 --mm:none --out:$DLL_NAME $SOURCE_FILE"
     
     Write-Host "Command: $buildCmd" -ForegroundColor Gray
     Invoke-Expression $buildCmd
