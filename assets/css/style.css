@@ -475,9 +475,9 @@ tr:hover td {
   color: var(--accent-blue);
 }
 
-/* Content images (responsive) */
+/* Content images (responsive, constrained) */
 .content img {
-  max-width: 100%;
+  max-width: min(100%, 600px);
   height: auto;
   display: block;
   margin: 1.5rem auto;
