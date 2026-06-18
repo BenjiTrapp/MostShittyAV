@@ -16,8 +16,9 @@ param(
 
 $PROVIDER_GUID = "{2E5D8A62-77F9-4F7B-A90B-1C8F6E9D4C3A}"
 $PROVIDER_NAME = "MostShittyAVProvider"
-$DLL_NAME = "MostShittyAVWrapper.dll"
-$SOURCE_FILE = "nim_amsi_wrapper_dll.nim"
+$PROJECT_ROOT = Split-Path $PSScriptRoot -Parent
+$DLL_NAME = Join-Path $PROJECT_ROOT "src\MostShittyAVWrapper.dll"
+$SOURCE_FILE = Join-Path $PROJECT_ROOT "src\nim_amsi_wrapper_dll.nim"
 
 function Test-IsAdmin {
     $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -157,7 +158,7 @@ function Show-Status {
     Write-Host "`n=== AMSI Provider Status ===" -ForegroundColor Cyan
     Write-Host "Provider GUID: $PROVIDER_GUID" -ForegroundColor Gray
     Write-Host "Provider Name: $PROVIDER_NAME" -ForegroundColor Gray
-    Write-Host "DLL Path: $PSScriptRoot\$DLL_NAME" -ForegroundColor Gray
+    Write-Host "DLL Path: $DLL_NAME" -ForegroundColor Gray
     
     if (Test-Path $DLL_NAME) {
         $dll = Get-Item $DLL_NAME

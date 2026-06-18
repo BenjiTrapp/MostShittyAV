@@ -36,11 +36,11 @@ jobs:
 
       - name: Build AMSI Provider DLL (New Wrapper)
         run: |
-          nim c --app:lib --cpu:${{ matrix.nim_arch }} -d:release --out:MostShittyAVWrapper.dll nim_amsi_wrapper_dll.nim
+          nim c --app:lib --cpu:${{ matrix.nim_arch }} -d:release --out:MostShittyAVWrapper.dll src/nim_amsi_wrapper_dll.nim
         
       - name: Build Scanner Executable (Standalone - Original)
         run: |
-          nim c --cpu:${{ matrix.nim_arch }} -d:release --out:MostShittyAVScanner.exe nim_antimalware_sim.nim
+          nim c --cpu:${{ matrix.nim_arch }} -d:release --out:MostShittyAVScanner.exe src/nim_antimalware_sim.nim
 
       - name: Verify builds
         run: |
@@ -100,11 +100,12 @@ jobs:
           Scripts & Tools:
           - build_and_register.ps1  - DLL registration automation
           - quick_build.ps1         - Quick rebuild script
+          - emergency_unregister.cmd - Emergency deregistration (CMD.exe)
           
           Documentation:
-          - BUILD_GUIDE.md          - Build instructions
-          - TEST_REGISTERED_PROVIDER.md - Testing with Process Monitor
-          - WORKING_SOLUTION.md     - Technical details
+          - BYPASS_TECHNIQUES.md          - All bypass techniques explained
+          - TEST_REGISTERED_PROVIDER.md   - Testing with Process Monitor
+          - USAGE_COMPARISON.md           - DLL vs EXE comparison
           
           Installation Options:
           
@@ -140,15 +141,15 @@ jobs:
           Copy-Item "MostShittyAVScanner.exe" "release/"
           
           # Copy scripts
-          Copy-Item "build_and_register.ps1" "release/"
-          Copy-Item "quick_build.ps1" "release/"
-          Copy-Item "check_provider_is_running.ps1" "release/" -ErrorAction SilentlyContinue
+          Copy-Item "scripts/build_and_register.ps1" "release/"
+          Copy-Item "scripts/quick_build.ps1" "release/"
+          Copy-Item "scripts/check_provider_is_running.ps1" "release/" -ErrorAction SilentlyContinue
+          Copy-Item "scripts/emergency_unregister.cmd" "release/" -ErrorAction SilentlyContinue
           
           # Copy documentation
-          Copy-Item "BUILD_GUIDE.md" "release/"
-          Copy-Item "TEST_REGISTERED_PROVIDER.md" "release/"
-          Copy-Item "WORKING_SOLUTION.md" "release/"
-          Copy-Item "USAGE_COMPARISON.md" "release/"
+          Copy-Item "docs/TEST_REGISTERED_PROVIDER.md" "release/"
+          Copy-Item "docs/USAGE_COMPARISON.md" "release/"
+          Copy-Item "docs/BYPASS_TECHNIQUES.md" "release/"
           Copy-Item "README.md" "release/"
           Copy-Item "BUILD_INFO.txt" "release/"
           
@@ -245,9 +246,9 @@ jobs:
             
             ### Documentation
             
-            - See `BUILD_GUIDE.md` for complete build instructions
+            - See `USAGE_COMPARISON.md` for DLL vs EXE comparison
             - See `TEST_REGISTERED_PROVIDER.md` for testing with Process Monitor
-            - See `WORKING_SOLUTION.md` for technical details
+            - See `BYPASS_TECHNIQUES.md` for all bypass techniques explained
             
             ### Requirements
             
@@ -288,10 +289,16 @@ jobs:
             
             **Standalone Scanner:** Just delete the EXE - no uninstall needed!
             
-            **AMSI Provider:**
+            **AMSI Provider (PowerShell):**
             ```powershell
             # As Administrator
             .\build_and_register.ps1 -Unregister
+            ```
+            
+            **AMSI Provider (Emergency - CMD.exe):**
+            ```cmd
+            # As Administrator - if PowerShell is not available
+            emergency_unregister.cmd
             ```
             
             ---
@@ -321,10 +328,10 @@ jobs:
         run: nimble install -y winim
 
       - name: Build AMSI Provider DLL (New Wrapper)
-        run: nim c --app:lib --cpu:amd64 -d:release --out:MostShittyAVWrapper.dll nim_amsi_wrapper_dll.nim
+        run: nim c --app:lib --cpu:amd64 -d:release --out:MostShittyAVWrapper.dll src/nim_amsi_wrapper_dll.nim
         
       - name: Build Scanner Executable (Standalone - Original)
-        run: nim c --cpu:amd64 -d:release --out:MostShittyAVScanner.exe nim_antimalware_sim.nim
+        run: nim c --cpu:amd64 -d:release --out:MostShittyAVScanner.exe src/nim_antimalware_sim.nim
 
       - name: Verify manual builds
         run: |

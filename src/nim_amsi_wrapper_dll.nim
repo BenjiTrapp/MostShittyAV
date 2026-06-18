@@ -129,7 +129,8 @@ when defined(windows):
 
     proc getOurModuleHandle(): HMODULE =
         var hm: HMODULE
-        let funcAddr = cast[LPCSTR](getOurModuleHandle)
+        let funcPtr = cast[pointer](getOurModuleHandle)
+        let funcAddr = cast[LPCSTR](funcPtr)
         if GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS or 
                                                     GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                                                     funcAddr, addr hm) != 0:

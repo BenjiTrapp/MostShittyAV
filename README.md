@@ -17,7 +17,7 @@
 
 **An educational antimalware simulator built in Nim to demonstrate detection techniques and their bypasses.**
 
-[Features](#-features) • [Quick Start](#-quick-start) • [Challenge](#-the-challenge) • [Examples](#-usage-examples) • [Resources](#-resources)
+[Features](#-features) • [Quick Start](#quick-start) • [Challenge](#-the-challenge) • [Examples](#-usage-examples) • [Bypass Techniques](docs/BYPASS_TECHNIQUES.md) • [Emergency Recovery](#-emergency-recovery) • [Resources](#-resources)
 
 </div>
 
@@ -71,7 +71,7 @@
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -84,26 +84,31 @@ winget install nim-lang.Nim
 
 ```powershell
 # Clone the repository
-git clone https://github.com/yourusername/AMSI-raaccoon-lab.git
-cd AMSI-raaccoon-lab
+git clone https://github.com/yourusername/MostShittyAV.git
+cd MostShittyAV
 
 # Allow script execution (if needed)
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 # Generate test files
-.\create_test_files.ps1
-
-# Optional: Generate bypass test files
-.\test\create_bypass_files.ps1
+powershell -ExecutionPolicy Bypass -File tests\scripts\create_test_files.ps1
+powershell -ExecutionPolicy Bypass -File tests\scripts\create_bypass_files.ps1
 ```
 
 ### Build & Run
 
 ```powershell
-# Compile and scan files
-nim c -r nim_antimalware_sim.nim testfile.txt infected.txt
+# Build and run the standalone scanner
+nim c -r src\nim_antimalware_sim.nim tests\01_clean\clean.txt tests\02_signature\malware.ps1
+
+# Build the AMSI Provider DLL
+nim c --app:lib --cpu:amd64 --out:src\MostShittyAVWrapper.dll src\nim_amsi_wrapper_dll.nim
+
+# Or use the provided scripts
+.\scripts\quick_build.ps1
 
 # Or use the Makefile
+make build
 make test_all
 ```
 
@@ -134,10 +139,10 @@ make test_all
 
 ```powershell
 # Scan single file
-nim c -r nim_antimalware_sim.nim suspicious.exe
+nim c -r src\nim_antimalware_sim.nim suspicious.exe
 
 # Scan multiple files
-nim c -r nim_antimalware_sim.nim *.txt *.exe *.bat
+nim c -r src\nim_antimalware_sim.nim tests\02_signature\*.ps1
 ```
 
 ### Example Output
@@ -155,34 +160,53 @@ Result for infected.txt: MALICIOUS ⛔
 ### Testing Bypasses
 
 ```powershell
-# Generate bypass test files
-.\test\create_bypass_files.ps1
-
-# Test double extensions
-nim c -r nim_antimalware_sim.nim test\document.pdf.exe
+# Test signature bypass (string splitting)
+nim c -r src\nim_antimalware_sim.nim tests\02_signature\malware.ps1 tests\02_signature\malware_bypass.ps1
 
 # Test uncommon extensions
-nim c -r nim_antimalware_sim.nim test\help.hta test\legacy.com
+nim c -r src\nim_antimalware_sim.nim tests\04_extension\help.hta tests\04_extension\legacy.com
 
 # Test no extension
-nim c -r nim_antimalware_sim.nim test\malware
+nim c -r src\nim_antimalware_sim.nim tests\04_extension\malware_no_ext
+
+# Run all test categories
+make test_all
 ```
+
+For a complete reference of all bypass techniques with explanations, see [docs/BYPASS_TECHNIQUES.md](docs/BYPASS_TECHNIQUES.md).
 
 ---
 
 ## 📁 Project Structure
 
 ```
-AMSI-raaccoon-lab/
-├── 📄 nim_antimalware_sim.nim     # Main scanner engine
-├── 📄 create_test_files.ps1        # Test file generator
-├── 📄 Makefile                     # Build automation
-├── 📄 README.md                    # This file
-└── 📁 test/
-    ├── 📄 create_bypass_files.ps1  # Bypass technique generator
-    ├── 📄 01_clean.txt             # Clean test file
-    ├── 📄 02_malware.ps1           # Malicious test file
-    └── 📄 ...                      # Various test cases
+MostShittyAV/
+├── src/                               # Source code
+│   ├── nim_antimalware_sim.nim        # Main scanner engine (standalone EXE)
+│   ├── nim_amsi_wrapper_dll.nim       # AMSI provider DLL wrapper
+│   ├── MostShittyAVWrapper.dll        # Compiled DLL (build artifact)
+│   └── nim_antimalware_sim.exe        # Compiled EXE (build artifact)
+├── tests/                             # Test cases organized by category
+│   ├── 01_clean/                      # Baseline benign files
+│   ├── 02_signature/                  # Signature detection + bypass
+│   ├── 03_encoding/                   # Non-printable ratio + bypass
+│   ├── 04_extension/                  # Extension heuristic + bypass
+│   ├── 05_small_executable/           # Small executable detection
+│   ├── 06_amsi_bypass/                # AMSI-specific bypass techniques
+│   └── scripts/                       # Test generation scripts
+├── scripts/                           # Build, registration & recovery scripts
+│   ├── build_and_register.ps1         # Full build/register workflow (PowerShell)
+│   ├── quick_build.ps1                # Quick DLL compilation
+│   ├── check_provider_is_running.ps1  # AMSI provider status check
+│   └── emergency_unregister.cmd       # Emergency deregistration (CMD.exe)
+├── docs/                              # Documentation
+│   ├── BYPASS_TECHNIQUES.md           # All bypass techniques explained
+│   ├── USAGE_COMPARISON.md            # DLL vs EXE comparison
+│   └── TEST_REGISTERED_PROVIDER.md    # Testing with Process Monitor
+├── static/                            # Static assets (logo)
+├── .github/workflows/                 # CI/CD (GitHub Actions)
+├── Makefile                           # Build automation
+└── README.md                          # This file
 ```
 
 ---
@@ -226,14 +250,16 @@ Catches unusually small executable files.
 
 ## 🧪 Test File Categories
 
-| Category | Files | Purpose |
-|----------|-------|---------|
-| **Clean** | `clean.txt`, `umlaut.txt` | Baseline benign files |
-| **Infected** | `infected.txt`, `trojan_sample.txt` | Signature matches |
-| **Binary** | `packed.bin`, `mixed.bin` | High entropy content |
-| **Small Scripts** | `tiny.bat` | Tiny executable detection |
-| **Encoding** | `utf16.txt` | Character encoding tests |
-| **Bypass** | `*.hta`, `*.com`, `no-ext` | Evasion techniques |
+| Category | Directory | Purpose |
+|----------|-----------|---------|
+| **Clean** | `tests/01_clean/` | Baseline benign files |
+| **Signature** | `tests/02_signature/` | Signature matches + string-splitting bypass |
+| **Encoding** | `tests/03_encoding/` | High entropy content + base64/padding bypass |
+| **Extension** | `tests/04_extension/` | Extension heuristic + uncommon ext/RTLO/double-ext bypass |
+| **Small Scripts** | `tests/05_small_executable/` | Tiny executable detection |
+| **AMSI Bypass** | `tests/06_amsi_bypass/` | AMSI-specific bypasses (memory patching, reflection, COM hijacking, etc.) |
+
+See [docs/BYPASS_TECHNIQUES.md](docs/BYPASS_TECHNIQUES.md) for full details on each technique.
 
 ---
 
@@ -247,6 +273,38 @@ This project demonstrates:
 - ✅ **Evasion Techniques** - Common bypass strategies
 - ✅ **AMSI Integration** - Windows antimalware interface
 - ✅ **Nim Programming** - Systems programming in Nim
+
+---
+
+## 🚨 Emergency Recovery
+
+If the AMSI provider causes instability or needs to be quickly removed:
+
+### Quick Deregistration (CMD.exe as Administrator)
+
+```cmd
+scripts\emergency_unregister.cmd
+```
+
+### Manual Registry Cleanup
+
+```cmd
+reg delete "HKLM\SOFTWARE\Microsoft\AMSI\Providers\{2E5D8A62-77F9-4F7B-A90B-1C8F6E9D4C3A}" /f
+reg delete "HKLM\SOFTWARE\Classes\CLSID\{2E5D8A62-77F9-4F7B-A90B-1C8F6E9D4C3A}\InprocServer32" /f
+reg delete "HKLM\SOFTWARE\Classes\CLSID\{2E5D8A62-77F9-4F7B-A90B-1C8F6E9D4C3A}" /f
+```
+
+### Recovery Options
+
+| Situation | Solution |
+|-----------|----------|
+| Script works but keys remain | Close all PowerShell/CMD windows, retry |
+| DLL missing/deleted | Script still works (manual registry cleanup) |
+| System unstable / AMSI crashes | Boot Safe Mode, run `emergency_unregister.cmd` |
+| Nothing works | `regedit` > manually delete keys listed above |
+| Worst case | System Restore via `rstrui.exe` |
+
+See `scripts/emergency_unregister.cmd` for detailed recovery instructions.
 
 ---
 

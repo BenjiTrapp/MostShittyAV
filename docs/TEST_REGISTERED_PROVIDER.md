@@ -11,14 +11,14 @@ This guide shows how to register and verify that your AMSI provider is actually 
 ## Step 1: Build the DLL
 
 ```powershell
-.\quick_build.ps1
+.\scripts\quick_build.ps1
 ```
 
 Expected output:
 ```
 Build successful!
-DLL: MostShittyAVWrapper.dll
-Size: 425.12 KB
+DLL: X:\GitHub\MostShittyAV\src\MostShittyAVWrapper.dll
+Size: ~488 KB
 ```
 
 ## Step 2: Register the AMSI Provider
@@ -26,23 +26,23 @@ Size: 425.12 KB
 **Important: Run PowerShell as Administrator**
 
 ```powershell
-.\build_and_register.ps1 -BuildAndRegister
+.\scripts\build_and_register.ps1 -BuildAndRegister
 ```
 
 Or manually:
 ```powershell
-regsvr32 "X:\MostShittyAV\MostShittyAVWrapper.dll"
+regsvr32 "X:\GitHub\MostShittyAV\src\MostShittyAVWrapper.dll"
 ```
 
 ## Step 3: Verify Registration
 
 ```powershell
-.\build_and_register.ps1 -Status
+.\scripts\build_and_register.ps1 -Status
 ```
 
 Or use the check script:
 ```powershell
-.\check_provider_is_running.ps1
+.\scripts\check_provider_is_running.ps1
 ```
 
 You should see:
@@ -132,7 +132,7 @@ Start-Process powershell
 
 You should see events like:
 ```
-powershell.exe  CreateFile  X:\MostShittyAV\MostShittyAVWrapper.dll  SUCCESS
+powershell.exe  CreateFile  X:\GitHub\MostShittyAV\src\MostShittyAVWrapper.dll  SUCCESS
 powershell.exe  Load Image  MostShittyAVWrapper.dll  SUCCESS
 powershell.exe  QueryNameInformationFile  MostShittyAVWrapper.dll  SUCCESS
 ```
@@ -203,7 +203,7 @@ For advanced debugging:
 
 ```powershell
 # Build with debug symbols
-nim c --app:lib --cpu:amd64 --debugger:native --out:MostShittyAVWrapper.dll nim_amsi_wrapper_dll.nim
+nim c --app:lib --cpu:amd64 --debugger:native --out:src\MostShittyAVWrapper.dll src\nim_amsi_wrapper_dll.nim
 
 # Use Visual Studio or WinDbg to attach to powershell.exe
 ```
@@ -213,13 +213,13 @@ nim c --app:lib --cpu:amd64 --debugger:native --out:MostShittyAVWrapper.dll nim_
 When everything works correctly, you should see:
 
 ```
-Time        Process         Operation       Path                                    Result
-----------  --------------  --------------  --------------------------------------  -------
-12:34:56    powershell.exe  CreateFile      X:\...\MostShittyAVWrapper.dll         SUCCESS
-12:34:56    powershell.exe  QueryAttributes X:\...\MostShittyAVWrapper.dll         SUCCESS
-12:34:56    powershell.exe  CreateFileMap   X:\...\MostShittyAVWrapper.dll         SUCCESS
-12:34:56    powershell.exe  Load Image      MostShittyAVWrapper.dll                SUCCESS
-12:34:56    powershell.exe  QueryBasicInfo  X:\...\MostShittyAVWrapper.dll         SUCCESS
+Time        Process         Operation       Path                                              Result
+----------  --------------  --------------  ------------------------------------------------  -------
+12:34:56    powershell.exe  CreateFile      X:\...\src\MostShittyAVWrapper.dll                SUCCESS
+12:34:56    powershell.exe  QueryAttributes X:\...\src\MostShittyAVWrapper.dll                SUCCESS
+12:34:56    powershell.exe  CreateFileMap   X:\...\src\MostShittyAVWrapper.dll                SUCCESS
+12:34:56    powershell.exe  Load Image      MostShittyAVWrapper.dll                           SUCCESS
+12:34:56    powershell.exe  QueryBasicInfo  X:\...\src\MostShittyAVWrapper.dll                SUCCESS
 ```
 
 ## Troubleshooting
@@ -231,9 +231,9 @@ Time        Process         Operation       Path                                
 **Solutions:**
 
 1. **Verify Registration:**
-   ```powershell
-   .\build_and_register.ps1 -Status
-   ```
+    ```powershell
+    .\scripts\build_and_register.ps1 -Status
+    ```
 
 2. **Check DLL Path in Registry:**
    ```powershell
@@ -243,11 +243,12 @@ Time        Process         Operation       Path                                
    ```
 
 3. **Verify DLL is Accessible:**
-   ```powershell
-   $path = "X:\MostShittyAV\MostShittyAVWrapper.dll"
-   icacls $path
-   # Should show Read & Execute permissions for Everyone or Users
-   ```
+    ```powershell
+    $path = (Get-ItemProperty "HKLM:\SOFTWARE\Classes\CLSID\{2E5D8A62-77F9-4F7B-A90B-1C8F6E9D4C3A}\InprocServer32").'(default)'
+    Test-Path $path  # Should return True
+    icacls $path
+    # Should show Read & Execute permissions for Everyone or Users
+    ```
 
 4. **Check for COM/AMSI Errors in Event Viewer:**
    ```powershell
@@ -310,7 +311,7 @@ Get-Process | Where-Object {
 
 Before testing, verify:
 
-- [ ] DLL exists: `X:\MostShittyAV\MostShittyAVWrapper.dll`
+- [ ] DLL exists: `src\MostShittyAVWrapper.dll`
 - [ ] AMSI Provider key exists in registry
 - [ ] COM CLSID key exists in registry
 - [ ] InprocServer32 path points to correct DLL location
@@ -358,17 +359,32 @@ AMSI should scan this content and your provider may be invoked.
 To remove the provider after testing:
 
 ```powershell
-# As Administrator
-.\build_and_register.ps1 -Unregister
+# As Administrator (PowerShell)
+.\scripts\build_and_register.ps1 -Unregister
 
 # Verify
-.\build_and_register.ps1 -Status
+.\scripts\build_and_register.ps1 -Status
 ```
 
 Or manually:
 ```powershell
-regsvr32 /u "X:\MostShittyAV\MostShittyAVWrapper.dll"
+regsvr32 /u "X:\GitHub\MostShittyAV\src\MostShittyAVWrapper.dll"
 ```
+
+### Emergency Deregistration (CMD.exe)
+
+If PowerShell scripts don't work or the system is unstable:
+
+```cmd
+# Run CMD.exe as Administrator
+scripts\emergency_unregister.cmd
+```
+
+This script:
+- Attempts `regsvr32 /u` first
+- Falls back to manual registry cleanup
+- Verifies all keys are removed
+- Provides Safe Mode recovery instructions
 
 ## Summary
 

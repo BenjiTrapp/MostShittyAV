@@ -27,7 +27,7 @@ MostShittyAV offers **two different components** that can be used independently:
 **Installation:**
 ```powershell
 # As Administrator
-.\build_and_register.ps1 -BuildAndRegister
+.\scripts\build_and_register.ps1 -BuildAndRegister
 ```
 
 **Testing:**
@@ -36,11 +36,17 @@ MostShittyAV offers **two different components** that can be used independently:
 Write-Host "MALWARE"  # Will be scanned by AMSI
 ```
 
+**Emergency Deregistration:**
+```cmd
+# If something goes wrong - run CMD.exe as Administrator
+scripts\emergency_unregister.cmd
+```
+
 ---
 
 ### 📦 Standalone Scanner EXE (Original - No Installation)
 
-**File:** `MostShittyAVScanner.exe`
+**File:** `nim_antimalware_sim.exe` (release: `MostShittyAVScanner.exe`)
 
 **What it does:**
 - Command-line file scanner
@@ -61,13 +67,13 @@ Write-Host "MALWARE"  # Will be scanned by AMSI
 **Usage:**
 ```powershell
 # Scan a single file
-.\MostShittyAVScanner.exe malware.exe
+.\src\nim_antimalware_sim.exe suspicious.exe
 
 # Scan multiple files
-.\MostShittyAVScanner.exe file1.ps1 file2.bat file3.dll
+.\src\nim_antimalware_sim.exe file1.ps1 file2.bat file3.dll
 
 # Scan test files
-.\MostShittyAVScanner.exe test\02_malware.ps1 test\trojan_sample.txt
+.\src\nim_antimalware_sim.exe tests\02_signature\malware.ps1 tests\02_signature\trojan_sample.txt
 ```
 
 ---
@@ -127,12 +133,12 @@ Write-Host "MALWARE"  # Will be scanned by AMSI
 
 ```powershell
 # No installation needed
-.\MostShittyAVScanner.exe test\02_malware.ps1
+.\src\nim_antimalware_sim.exe tests\02_signature\malware.ps1
 ```
 
 Output:
 ```
-[2025-11-09 01:30:00] AMSI: Starting scan for file: test\02_malware.ps1
+[2025-11-09 01:30:00] AMSI: Starting scan for file: tests\02_signature\malware.ps1
 [2025-11-09 01:30:00] AMSI: Threat detected - Signature found
 Result: MALICIOUS
 ```
@@ -141,20 +147,20 @@ Result: MALICIOUS
 
 ```powershell
 # Register (as Admin)
-.\build_and_register.ps1 -BuildAndRegister
+.\scripts\build_and_register.ps1 -BuildAndRegister
 
 # Open NEW PowerShell window
 # Type commands - they're automatically scanned
-Write-Host "This is safe"  # ✅ No detection
-$malware = "MALWARE"       # ⚠️ May trigger detection
+Write-Host "This is safe"  # No detection
+$malware = "MALWARE"       # May trigger detection
 ```
 
 ### Example 3: Scanning Multiple Files (Use Standalone EXE)
 
 ```powershell
 # Scan entire test directory
-Get-ChildItem test -Recurse -File | ForEach-Object {
-    .\MostShittyAVScanner.exe $_.FullName
+Get-ChildItem tests -Recurse -File | ForEach-Object {
+    .\src\nim_antimalware_sim.exe $_.FullName
 }
 ```
 
@@ -162,7 +168,7 @@ Get-ChildItem test -Recurse -File | ForEach-Object {
 
 ```powershell
 # Register provider
-.\build_and_register.ps1 -BuildAndRegister
+.\scripts\build_and_register.ps1 -BuildAndRegister
 
 # Start Process Monitor with filters
 # Launch new PowerShell
@@ -196,10 +202,11 @@ Get-ChildItem test -Recurse -File | ForEach-Object {
 
 **TLDR:**
 
-- 🆕 **Want system integration?** → Use `MostShittyAVWrapper.dll` (AMSI Provider)
-- 📦 **Want quick file scanning?** → Use `MostShittyAVScanner.exe` (Standalone)
-- 🎓 **Learning AMSI?** → Use the DLL + Process Monitor
-- 🧪 **Testing scanner logic?** → Use the EXE (faster iteration)
-- 🚀 **Not sure?** → Start with the EXE (no installation)
+- **Want system integration?** → Use `MostShittyAVWrapper.dll` (AMSI Provider)
+- **Want quick file scanning?** → Use `nim_antimalware_sim.exe` (Standalone)
+- **Learning AMSI?** → Use the DLL + Process Monitor
+- **Testing scanner logic?** → Use the EXE (faster iteration)
+- **Not sure?** → Start with the EXE (no installation)
+- **Something went wrong?** → Run `scripts\emergency_unregister.cmd` as Admin
 
 Both are included in the release package - choose what fits your needs!
