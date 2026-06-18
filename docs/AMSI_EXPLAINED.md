@@ -23,7 +23,7 @@ AMSI solves this by allowing the scripting engine to submit the **final deobfusc
 
 AMSI operates as a **three-party system**:
 
-![](/static/amsi_architecture.png)
+![AMSI Architecture]({{ '/static/amsi_architecture.png' | relative_url }})
 
 ### The Three Components
 
@@ -39,7 +39,7 @@ AMSI operates as a **three-party system**:
 
 When PowerShell executes a script, the following sequence occurs:
 
-![](/static/amsi_scan_flow.png)
+![AMSI Scan Flow]({{ '/static/amsi_scan_flow.png' | relative_url }})
 
 ---
 
@@ -157,7 +157,7 @@ Since providers are registered via COM, an attacker with user-level write access
 
 The AMSI Raccoon Lab registers a custom AMSI provider (`MostShittyAVWrapper.dll`) that implements the same intentionally weak 6-check detection engine as the standalone scanner:
 
-![](/static/amsi_mostshiitty_av_usage.png)
+![MostShittyAV AMSI Usage]({{ '/static/amsi_mostshiitty_av_usage.png' | relative_url }})
 
 This allows you to practice AMSI bypass techniques in a safe environment. The 13 AMSI bypass challenges (31-43) cover real-world techniques used by red teamers and malware authors, applied against this intentionally vulnerable provider.
 

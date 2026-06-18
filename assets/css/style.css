@@ -475,6 +475,15 @@ tr:hover td {
   color: var(--accent-blue);
 }
 
+/* Content images (responsive) */
+.content img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 1.5rem auto;
+  border-radius: var(--radius);
+}
+
 /* Horizontal rule */
 hr {
   border: none;
