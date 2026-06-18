@@ -23,28 +23,7 @@ AMSI solves this by allowing the scripting engine to submit the **final deobfusc
 
 AMSI operates as a **three-party system**:
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    AMSI Architecture                             │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌──────────────┐     ┌──────────────┐     ┌────────────────┐  │
-│  │  AMSI        │     │              │     │  AMSI          │  │
-│  │  Consumers   │────>│   amsi.dll   │────>│  Providers     │  │
-│  │              │     │              │     │                │  │
-│  │ - PowerShell │     │  (Broker)    │     │ - Windows      │  │
-│  │ - VBScript   │     │              │     │   Defender     │  │
-│  │ - JavaScript │     │  Loaded into │     │ - 3rd party AV │  │
-│  │ - Office VBA │     │  the calling │     │ - Custom       │  │
-│  │ - .NET (4.8+)│     │  process     │     │   providers    │  │
-│  │ - WMI        │     │              │     │                │  │
-│  └──────────────┘     └──────────────┘     └────────────────┘  │
-│                                                                 │
-│  "I have content       "Route scan to       "Analyze and        │
-│   to scan"              all providers"       return verdict"     │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
+![](/static/amsi_architecture.png)
 
 ### The Three Components
 
@@ -60,37 +39,7 @@ AMSI operates as a **three-party system**:
 
 When PowerShell executes a script, the following sequence occurs:
 
-```
-1. PowerShell loads amsi.dll into its process
-         |
-         v
-2. AmsiInitialize() -- Create an AMSI context
-         |
-         v
-3. AmsiOpenSession() -- Start a scan session
-         |
-         v
-4. AmsiScanBuffer() / AmsiScanString()
-   Submit the DEOBFUSCATED content for scanning
-         |
-         v
-5. amsi.dll forwards the buffer to all registered providers
-         |
-         v
-6. Each provider returns a verdict:
-   - AMSI_RESULT_CLEAN          (0)
-   - AMSI_RESULT_NOT_DETECTED   (1)
-   - AMSI_RESULT_DETECTED       (32768)
-         |
-         v
-7. amsi.dll aggregates results and returns to the consumer
-         |
-         v
-8. Consumer decides: execute or block
-         |
-         v
-9. AmsiCloseSession() / AmsiUninitialize() -- Cleanup
-```
+![](/static/amsi_scan_flow.png)
 
 ---
 
@@ -208,21 +157,7 @@ Since providers are registered via COM, an attacker with user-level write access
 
 The AMSI Raccoon Lab registers a custom AMSI provider (`MostShittyAVWrapper.dll`) that implements the same intentionally weak 6-check detection engine as the standalone scanner:
 
-```
-PowerShell.exe
-    |
-    v
-AmsiScanBuffer("user input")
-    |
-    v
-amsi.dll --> MostShittyAVWrapper.dll
-    |
-    v
-[6-Check Detection Engine]
-    |
-    v
-AMSI_RESULT_CLEAN  or  AMSI_RESULT_DETECTED
-```
+![](/static/amsi_mostshiitty_av_usage.png)
 
 This allows you to practice AMSI bypass techniques in a safe environment. The 13 AMSI bypass challenges (31-43) cover real-world techniques used by red teamers and malware authors, applied against this intentionally vulnerable provider.
 

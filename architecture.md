@@ -29,30 +29,7 @@ Both share the same detection engine with 6 sequential checks.
 
 Every scanned file passes through these 6 checks **in order**:
 
-```
-File Input
-    |
-    v
-[1] Signature Scan ──────── Match found? ──> MALICIOUS (BLOCK)
-    |
-    v
-[2] Extension Heuristic ─── Suspicious ext? ──> WARNING (continue)
-    |
-    v
-[3] Non-Printable Ratio ─── >40% (>=64B)? ──> MALICIOUS (BLOCK)
-    |
-    v
-[4] Small Executable ────── <32B + sus ext? ──> MALICIOUS (BLOCK)
-    |
-    v
-[5] Suspicious Patterns ─── IEX/WebClient? ──> WARNING (continue)
-    |
-    v
-[6] Entropy Check ──────── >7.2 (>=128B)? ──> WARNING (continue)
-    |
-    v
-BENIGN (PASS)
-```
+![](/static/detection_pipeline.png)
 
 ---
 
@@ -215,21 +192,7 @@ if entropy > 7.2:
 
 When registered as an AMSI provider, the DLL integrates with Windows:
 
-```
-PowerShell.exe
-    |
-    v
-[AMSI API] ──> AmsiScanBuffer()
-    |
-    v
-[amsi.dll] ──> Routes to registered providers
-    |
-    v
-[MostShittyAVWrapper.dll] ──> Same 6-check engine
-    |
-    v
-AMSI_RESULT_CLEAN / AMSI_RESULT_DETECTED
-```
+![](/static/amsi_provider_architecture.png)
 
 **Key points:**
 - Runs in the calling process's address space (user-mode)
