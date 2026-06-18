@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% if page.title %}{{ page.title }} | {% endif %}{{ site.title }}</title>
+  <meta name="description" content="{{ page.description | default: site.description }}">
+  <link rel="stylesheet" href="{{ '/assets/css/style.css' | relative_url }}">
+  {% seo %}
+</head>
+<body>
+  <header class="site-header">
+    <div class="container">
+      <a href="{{ '/' | relative_url }}" class="site-title">
+        <img src="{{ '/static/logo_transparent.png' | relative_url }}" alt="AMSI Raccoon Lab" class="header-logo"> AMSI Raccoon Lab
+      </a>
+      <nav class="site-nav">
+        <a href="{{ '/' | relative_url }}">Home</a>
+        <a href="{{ '/challenges/' | relative_url }}">Challenges</a>
+        <a href="{{ '/solutions/' | relative_url }}">Solutions</a>
+        <a href="{{ '/getting-started' | relative_url }}">Getting Started</a>
+        <a href="{{ '/architecture' | relative_url }}">Architecture</a>
+        <a href="{{ '/amsi-explained' | relative_url }}">AMSI Explained</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="content">
+    <div class="container">
+      {{ content }}
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>AMSI Raccoon Lab &mdash; Educational Security Research Tool</p>
+      <p>This is NOT production security software. For learning purposes only.</p>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="static/logo.png" alt="AMSI Raccoon Lab Logo" width="500" />
+<img src="static/logo_transparent.png" alt="AMSI Raccoon Lab Logo" width="500" />
 
 </div>
 <br><br>

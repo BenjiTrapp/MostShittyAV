@@ -1,0 +1,56 @@
+title: "AMSI Raccoon Lab"
+description: "The World's Most Intentionally Terrible Antivirus Scanner - Challenge & Bypass Lab"
+baseurl: "/MostShittyAV"
+url: ""
+
+markdown: kramdown
+highlighter: rouge
+
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+
+plugins:
+  - jekyll-relative-links
+  - jekyll-seo-tag
+
+relative_links:
+  enabled: true
+  collections: true
+
+defaults:
+  - scope:
+      path: "challenges"
+    values:
+      layout: challenge
+  - scope:
+      path: "solutions"
+    values:
+      layout: solution
+  - scope:
+      path: ""
+    values:
+      layout: default
+
+exclude:
+  - src/
+  - tests/
+  - scripts/
+  - build/
+  - nim_antimalware_sim.exe
+  - "*.nim"
+  - "*.nims"
+  - nimble
+  - Gemfile.lock
+  - node_modules/
+  - vendor/
+  - Makefile
+  - README.md
+  - serve_site.sh
+  - serve_site.ps1
+
+collections_dir: .
+
+sass:
+  sass_dir: _sass
+  style: compressed
