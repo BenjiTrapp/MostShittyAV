@@ -43,8 +43,12 @@ generate_tests:
 	@powershell -ExecutionPolicy Bypass -File tests/scripts/create_test_files.ps1
 	@powershell -ExecutionPolicy Bypass -File tests/scripts/create_bypass_files.ps1
 
-# Run all tests
-test_all: test_clean test_signature_detection test_encoding test_extension_bypass test_small_executable test_amsi_bypass
+# Run all tests (automated test suite with expected verdicts)
+test_all:
+	powershell -ExecutionPolicy Bypass -File tests/scripts/run_tests.ps1
+
+# Legacy: Run all test categories individually (no verdict validation)
+test_all_legacy: test_clean test_signature_detection test_encoding test_extension_bypass test_small_executable test_amsi_bypass
 	@echo All tests completed.
 
 # Test category: Clean files (should all be BENIGN)

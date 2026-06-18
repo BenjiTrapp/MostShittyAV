@@ -643,6 +643,194 @@ deuten auf verschluesselte/komprimierte Payloads hin. **Nur Warning.**
 
 ---
 
+## 8. Erweiterte Bypass-Techniken (v3)
+
+### 8.1 UTF-16LE Signature Evasion
+
+**Testdatei:** `tests/02_signature/bypass_utf16le.ps1`
+
+**Wie es funktioniert:**
+UTF-16LE kodiert jedes ASCII-Zeichen als 2 Bytes (Zeichen + 0x00). Der Scanner sucht
+nach zusammenhaengenden ASCII-Byte-Sequenzen. Die Null-Bytes zwischen den Zeichen
+unterbrechen die Substring-Suche komplett.
+
+**Reale Relevanz:** PowerShell-Strings sind intern UTF-16LE. Viele Windows-APIs arbeiten
+mit Wide-Strings (WCHAR). Scanner die nur ASCII-Matching machen, uebersehen UTF-16-Inhalte.
+
+### 8.2 Null-Byte-Insertion
+
+**Testdatei:** `tests/02_signature/bypass_null_insertion.ps1`
+
+**Wie es funktioniert:**
+Null-Bytes (0x00) werden zwischen die Zeichen eingefuegt. Zur Laufzeit werden die
+Nullen herausgefiltert. Der Scanner kann keine zusammenhaengende Signatur finden.
+
+**Reale Relevanz:** Aehnlich wie UTF-16LE, aber auch in Nicht-Unicode-Kontexten anwendbar.
+Web Application Firewalls (WAFs) haben historisch Probleme mit Null-Byte-Injection.
+
+### 8.3 Unicode-Homoglyph-Substitution
+
+**Testdatei:** `tests/02_signature/bypass_homoglyph.ps1`
+
+**Wie es funktioniert:**
+ASCII-Zeichen werden durch visuell identische Unicode-Zeichen ersetzt (z.B. Kyrillisch
+'a' U+0430 statt Latein 'a' U+0061). Der Scanner's `toLowerAsciiByte` behandelt nur
+den ASCII-Bereich (0x41-0x5A) und erkennt Multi-Byte UTF-8-Sequenzen nicht.
+
+**Reale Relevanz:** Homoglyph-Angriffe sind bekannt aus Phishing (punycode Domains)
+und IDN-Spoofing. Auch gegen YARA-Regeln effektiv wenn keine Unicode-Normalisierung stattfindet.
+
+### 8.4 Zero-Width Unicode Characters
+
+**Testdatei:** `tests/02_signature/bypass_zero_width.ps1`
+
+**Wie es funktioniert:**
+Zero-Width-Zeichen (U+200B, U+200C, U+FEFF) sind unsichtbar in der Darstellung,
+fuegen aber 3 UTF-8-Bytes (z.B. E2 80 8B) in den Bytestream ein. Dies unterbricht
+die Substring-Suche ohne visuellen Unterschied.
+
+**Reale Relevanz:** Zero-Width-Zeichen werden zum Fingerprinting von Dokumenten und
+zur Steganografie genutzt. In Malware-Kontexten brechen sie signaturbasierte Erkennung.
+
+### 8.5 Download Cradle (Warning-Only Bypass)
+
+**Testdatei:** `tests/02_signature/bypass_download_cradle.ps1`
+
+**Wie es funktioniert:**
+Voll funktionale Download-Cradles (WebClient, IEX, Invoke-WebRequest) enthalten keine
+Signatur-Strings. Der Pattern-Check erkennt "invoke-expression" etc. -- gibt aber nur
+eine Warnung aus ohne zu blockieren. Die Datei passiert als BENIGN.
+
+**Reale Relevanz:** Dies ist die kritischste Design-Schwaeche: Echte Angriffs-Tools
+(Mimikatz-Loader, C2-Stager) verwenden Download-Cradles ohne hardcoded Signaturen.
+Der Scanner warnt zwar, verhindert aber die Ausfuehrung nicht.
+
+### 8.6 Sub-64-Byte Non-Printable Bypass
+
+**Testdatei:** `tests/03_encoding/bypass_sub64_nonprintable.bin`
+
+**Wie es funktioniert:**
+Der Non-Printable-Ratio-Check erfordert `content.len >= 64`. Eine 63-Byte-Datei mit
+100% nicht-druckbaren Bytes (z.B. Shellcode-Stub) passiert den Check komplett.
+
+**Reale Relevanz:** Viele Shellcode-Stager sind < 64 Bytes (z.B. egg hunters, staged
+Meterpreter first-stage). Diese fallen unter die Groessen-Schwelle.
+
+### 8.7 Encrypted Content (Entropy Warning-Only)
+
+**Testdatei:** `tests/03_encoding/bypass_encrypted_payload.ps1`
+
+**Wie es funktioniert:**
+AES-verschluesselte Inhalte haben Entropie nahe 8.0 bits/byte. Der Entropy-Check ist
+aber nur beratend (Warning) -- er blockiert nie. Verschluesselte Payloads passieren
+unerkannt, koennen aber zur Laufzeit entschluesselt und ausgefuehrt werden.
+
+**Reale Relevanz:** Alle modernen Packer/Crypter verschluesseln ihren Inhalt. Ohne
+Entpackung/Emulation ist der echte Schadcode unsichtbar fuer statische Scanner.
+
+### 8.8 Archive Container (Kein Entpacken)
+
+**Testdatei:** `tests/03_encoding/bypass_archive_container.zip`
+
+**Wie es funktioniert:**
+Der Scanner oeffnet die Datei als Bytestream und sucht nach Signaturen. In einem ZIP
+sind die Originaldaten komprimiert (deflate). Komprimierte Bytes matchen keine Signatur.
+
+**Reale Relevanz:** ZIP/RAR/7z-Container sind der Standard-Delivery-Mechanismus fuer
+E-Mail-basierte Angriffe. Echte AV-Engines entpacken Archive bis zu mehreren Ebenen.
+
+### 8.9 NTFS Alternate Data Streams
+
+**Testdatei:** `tests/04_extension/bypass_ads_hidden.ps1`
+
+**Wie es funktioniert:**
+NTFS unterstuetzt Alternate Data Streams (ADS) -- versteckte Datenkanale die an
+Dateien angehaengt werden. Der Scanner oeffnet nur den Hauptstream (`$DATA`).
+Content in `datei.txt:hidden` wird nie gelesen oder gescannt.
+
+**Reale Relevanz:** ADS werden von APT-Gruppen zur Persistenz und zum Verstecken von
+Payloads genutzt. Moderne EDR loesungen ueberwachen ADS-Erstellung via ETW.
+
+### 8.10 PE-Stub ohne Signatur
+
+**Testdatei:** `tests/04_extension/bypass_pe_stub.ps1`
+
+**Wie es funktioniert:**
+Der Scanner fuehrt keine strukturelle Analyse von PE-Dateien durch (keine Header-
+Validierung, keine Import-Table-Analyse, keine Section-Entropie). Ein minimales PE
+mit Shellcode-Payload aber ohne String-Signaturen passiert alle Checks.
+
+**Reale Relevanz:** Die meisten echten Executables enthalten keine offensichtlichen
+Signatur-Strings. Echte AV nutzt Import-Hashing, Code-Similarity und Emulation.
+
+### 8.11 Polyglot-Dateien
+
+**Testdatei:** `tests/04_extension/bypass_polyglot.ps1`
+
+**Wie es funktioniert:**
+Polyglot-Dateien sind gleichzeitig in mehreren Formaten gueltig. Der Scanner bestimmt
+den Dateityp nur anhand der Extension -- keine Magic-Byte-Analyse. Eine .ps1-Datei
+die wie ein Konfigurationsfile aussieht aber Code enthaelt, passiert alle Checks.
+
+**Reale Relevanz:** PDF/JS-Polyglots, HTML/HTA-Polyglots und BMP/BAT-Polyglots werden
+aktiv in Phishing-Kampagnen eingesetzt.
+
+### 8.12 Small-Executable Padding
+
+**Testdatei:** `tests/05_small_executable/bypass_padded.bat`
+
+**Wie es funktioniert:**
+Der Small-Executable-Check greift nur bei Dateien < 32 Bytes mit verdaechtiger Extension.
+Durch Hinzufuegen von Kommentaren oder Whitespace (>= 32 Bytes) wird der Check umgangen.
+Die funktionale Payload bleibt dabei unveraendert.
+
+---
+
+## 9. AMSI-Bypass-Erweiterungen (v3)
+
+### 9.1 DLL Path Hijacking
+
+**Testdatei:** `tests/06_amsi_bypass/11_dll_path_hijacking.ps1`
+
+**Angriffsvektor:** Platziert eine Stub-DLL frueher im DLL-Suchpfad.
+
+**Wie es funktioniert:**
+Windows laedt DLLs in einer definierten Reihenfolge (Anwendungsverzeichnis -> System32 ->
+Windows -> PATH). Ein Angreifer kann eine harmlose DLL in einem beschreibbaren PATH-
+Verzeichnis platzieren, die vor dem echten Provider geladen wird. Die Stub-DLL gibt
+fuer jeden Scan AMSI_RESULT_CLEAN zurueck.
+
+Erfordert kein Admin wenn ein beschreibbares PATH-Verzeichnis existiert (haeufig bei
+Entwickler-Tools wie Python, Node.js, Nim etc.).
+
+### 9.2 WMI Event Subscription
+
+**Testdatei:** `tests/06_amsi_bypass/12_wmi_subscription.ps1`
+
+**Angriffsvektor:** Code-Ausfuehrung ueber WMI-Eventfilter in separatem Prozess.
+
+**Wie es funktioniert:**
+WMI-Subscriptions fuehren Aktionen in wmiprvse.exe aus -- einem separaten Prozess
+mit eigenem AMSI-Kontext. Die Payload wird ueber WMI-Objekte fragmentiert gespeichert
+und erst bei der Ausfuehrung zusammengesetzt. Cross-Prozess-Ausfuehrung umgeht
+per-Prozess AMSI-Hooks.
+
+"Living off the Land" (LOLBin) -- verwendet nur eingebaute Windows-Komponenten.
+
+### 9.3 ETW Patching (Event Tracing Blinding)
+
+**Testdatei:** `tests/06_amsi_bypass/13_etw_patching.ps1`
+
+**Angriffsvektor:** Patcht EtwEventWrite in ntdll.dll auf `ret`.
+
+**Wie es funktioniert:**
+ETW ist die Grundlage fuer Windows Security-Telemetrie. Durch Patchen von
+`EtwEventWrite` werden alle ETW-Events unterdrueckt -- einschliesslich AMSI-Telemetrie,
+Script Block Logging und .NET Assembly Load Events. Kombiniert mit AMSI-Bypass wird
+der Angriff komplett unsichtbar fuer EDR-Loesungen.
+
+---
+
 ## Testausfuehrung
 
 ### Alle Tests scannen
@@ -679,10 +867,10 @@ tests/
 │   ├── clean_umlaute.txt
 │   └── testfile.txt
 ├── 02_signature/              # Signatur-Erkennung + Bypass
-│   ├── malware.ps1            # DETECTED: enthalt "malware"
+│   ├── malware.ps1            # DETECTED: enthalt Signatur-String
 │   ├── malware_bypass.ps1     # BYPASS: String-Splitting
-│   ├── trojan_sample.txt      # DETECTED: enthalt "trojan"
-│   ├── infected.txt           # DETECTED: enthalt "MALWARE"
+│   ├── trojan_sample.txt      # DETECTED: enthalt Signatur-String
+│   ├── infected.txt           # DETECTED: enthalt Signatur-String
 │   ├── bypass_xor_encoding.ps1    # BYPASS: XOR-Verschluesselung
 │   ├── bypass_charcode.ps1        # BYPASS: Character-Code-Konstruktion
 │   ├── bypass_reversal.ps1        # BYPASS: String-Umkehrung
@@ -690,13 +878,21 @@ tests/
 │   ├── bypass_rot13.ps1           # BYPASS: ROT13 Caesar-Chiffre
 │   ├── bypass_hex_encoding.ps1    # BYPASS: Hex-String-Konvertierung
 │   ├── bypass_format_string.ps1   # BYPASS: Replace/Format-String
-│   └── bypass_type_conversion.ps1 # BYPASS: Integer-Array + StringBuilder
+│   ├── bypass_type_conversion.ps1 # BYPASS: Integer-Array + StringBuilder
+│   ├── bypass_utf16le.ps1         # BYPASS: UTF-16LE Null-Byte-Interleaving
+│   ├── bypass_null_insertion.ps1  # BYPASS: Null-Byte-Insertion
+│   ├── bypass_homoglyph.ps1      # BYPASS: Unicode-Homoglyph-Substitution
+│   ├── bypass_zero_width.ps1     # BYPASS: Zero-Width Unicode Characters
+│   └── bypass_download_cradle.ps1 # BYPASS: Download Cradle (Pattern-Only)
 ├── 03_encoding/               # Non-Printable Ratio + Bypass
 │   ├── utf16.txt              # DETECTED: hohe Ratio durch UTF-16 BOM
 │   ├── utf16_bypass.txt       # BYPASS: Base64-Encoding
 │   ├── packed.bin             # DETECTED: Zufallsbytes
 │   ├── mixed.bin              # DETECTED: gemischter Inhalt
-│   └── mixed_bypass.bin       # BYPASS: Ratio-Manipulation
+│   ├── mixed_bypass.bin       # BYPASS: Ratio-Manipulation (Padding)
+│   ├── bypass_sub64_nonprintable.bin  # BYPASS: < 64 Bytes Groessen-Gate
+│   ├── bypass_encrypted_payload.ps1   # BYPASS: Hohe Entropie (Warning-Only)
+│   └── bypass_archive_container.zip   # BYPASS: Archiv ohne Entpackung
 ├── 04_extension/              # Extension-Heuristik + Bypass
 │   ├── extension_detected.exe # WARNING: verdaechtige Endung
 │   ├── help.hta               # BYPASS: unbekannte Endung
@@ -704,10 +900,14 @@ tests/
 │   ├── malware_no_ext         # BYPASS: keine Endung
 │   ├── document.pdf.exe       # Double Extension
 │   ├── rtlo_bypass.sh         # BYPASS: RTLO Unicode
-│   └── unicode_fullwidth_dot.exe  # BYPASS: Fullwidth-Punkt
+│   ├── unicode_fullwidth_dot.exe  # BYPASS: Fullwidth-Punkt
+│   ├── bypass_ads_hidden.ps1      # BYPASS: NTFS Alternate Data Streams
+│   ├── bypass_pe_stub.ps1         # BYPASS: PE-Header ohne Signatur
+│   └── bypass_polyglot.ps1        # BYPASS: Polyglot-Datei
 ├── 05_small_executable/       # Small-Executable-Check
 │   ├── tiny.bat               # DETECTED: < 32 Bytes + .bat
-│   └── empty.txt              # Edge-Case: 0 Bytes
+│   ├── empty.txt              # Edge-Case: 0 Bytes
+│   └── bypass_padded.bat      # BYPASS: Padding auf >= 32 Bytes
 ├── 06_amsi_bypass/            # AMSI-spezifische Bypasses
 │   ├── 01_amsi_init_failed.ps1        # amsiInitFailed Reflection
 │   ├── 02_amsi_memory_patch.ps1       # AmsiScanBuffer Memory Patching
@@ -718,7 +918,10 @@ tests/
 │   ├── 07_clm_escape.ps1             # CLM Escape + AMSI Bypass
 │   ├── 08_context_corruption.ps1      # AMSI Context Nullification
 │   ├── 09_chunked_execution.ps1       # Fragmentierte Ausfuehrung
-│   └── 10_fileless_assembly.ps1       # In-Memory Assembly Loading
+│   ├── 10_fileless_assembly.ps1       # In-Memory Assembly Loading
+│   ├── 11_dll_path_hijacking.ps1      # DLL Search Path Hijacking
+│   ├── 12_wmi_subscription.ps1        # WMI Event Subscription
+│   └── 13_etw_patching.ps1           # ETW Patching (Telemetry Blinding)
 └── scripts/                   # Generierungs-Skripte
     ├── create_test_files.ps1
     └── create_bypass_files.ps1
