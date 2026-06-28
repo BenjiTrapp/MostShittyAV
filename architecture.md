@@ -47,14 +47,14 @@ const signatures = [
 
 **How it works:**
 1. Read entire file content as raw bytes
-2. Convert to lowercase ASCII (only 0x41-0x5A range is lowered)
+2. Convert to lowercase ASCII (only 0x41–0x5A range is lowered)
 3. Search for each signature as a contiguous substring
 4. If ANY match found: file is **MALICIOUS**
 
 **Exploitable weaknesses:**
 - No regex/YARA pattern matching
 - Only exact contiguous matches
-- No Unicode normalization
+- No Unicode normalisation
 - No decoding (Base64, XOR, etc.)
 - Only 7 signatures in the database
 
@@ -80,7 +80,7 @@ const suspiciousExtensions = [
 
 **Exploitable weaknesses:**
 - Uses `rfind('.')` (ASCII only, not Unicode-aware)
-- Warning-only design (critical flaw)
+- Warning-only design (`discard engine.extensionHeuristic()`)
 - Only 11 extensions in the list
 - No magic byte validation
 - No content-based type detection
@@ -101,7 +101,7 @@ if ratio > 0.40:
 
 **How it works:**
 1. Skip if file size < 64 bytes
-2. Count bytes outside the printable ASCII range (0x20-0x7E)
+2. Count bytes outside the printable range: `b < 9`, `14 ≤ b < 32`, or `b > 126`
 3. Calculate ratio: non-printable / total
 4. If ratio > 0.40 (40%): file is **MALICIOUS**
 
@@ -110,7 +110,7 @@ if ratio > 0.40:
 - Global ratio (padding dilutes it)
 - No Base64 detection/decoding
 - No per-section analysis
-- No archive unpacking
+- No archive unpacking (but ZIP files themselves typically exceed 40% — see Challenge #19)
 
 ---
 
@@ -139,25 +139,37 @@ if file_size < 32 and isSuspiciousExtension(ext):
 ## Check 5: Suspicious Pattern Detection
 
 **Action:** WARNING only (never blocks)  
-**Weakness:** Critical design flaw - detects but doesn't enforce
+**Weakness:** Critical design flaw — detects but discards the result
 
 ```nim
+# Full pattern list from nim_antimalware_sim.nim (22 entries):
 const suspiciousPatterns = [
-  "IEX", "Invoke-Expression",
-  "Net.WebClient", "DownloadString",
-  "Invoke-WebRequest", "Start-Process"
+  "invoke-expression",   "iex(",              "iex ",
+  "downloadstring",      "downloadfile",      "webclient",
+  "bitstransfer",        "start-process",     "invoke-webrequest",
+  "net.webclient",       "reflection.assembly", "frombase64string",
+  "encodedcommand",      "bypass",            "hidden",
+  "-nop",                "-noni",             "amsiutils",
+  "amsiinitfailed",      "virtualallocex",    "writeprocessmemory",
+  "createremotethread",  "shellcode"
 ]
 ```
 
 **How it works:**
-1. Search for known attack tool patterns
-2. If found: emit warning, **result is discarded**
-3. Scanning continues regardless
+1. Search for any of the 22 patterns (case-insensitive via ASCII lowercase)
+2. `suspiciousPatternCheck` returns `false` when a pattern is found
+3. The pipeline calls it with `discard` — the return value is thrown away
+4. Scanning continues regardless of the result
+
+```nim
+# The bug is at the call site, not inside the proc:
+discard engine.suspiciousPatternCheck()  # Warning only, doesn't block
+```
 
 **Exploitable weaknesses:**
-- `discard` keyword means detection has no effect
-- Real attack tools (download cradles, C2 stagers) pass as BENIGN
-- No behavioral analysis of detected patterns
+- `discard` at the call site means detection has zero effect
+- All 22 patterns — including download cradles and AMSI internals — pass as BENIGN
+- No behavioural analysis of detected patterns
 
 ---
 
@@ -179,7 +191,7 @@ if entropy > 7.2:
 3. If entropy > 7.2: emit warning (does not block)
 
 **Exploitable weaknesses:**
-- Warning only (encrypted payloads pass)
+- Warning only (`discard engine.entropyCheck()`)
 - 128-byte minimum size
 - Does not identify encryption algorithm
 - No attempt to decrypt or decompress
@@ -198,7 +210,8 @@ When registered as an AMSI provider, the DLL integrates with Windows:
 - Runs in the calling process's address space (user-mode)
 - Process has full control over its own memory
 - COM-based registration (HKLM registry)
-- Can be hijacked via HKCU COM override
+- `ScanImpl` reads scan content via `IAmsiStream::GetAttribute` (CONTENT_ADDRESS + CONTENT_SIZE)
+- Can be hijacked via HKCU COM override (see Challenge #35)
 
 ---
 
@@ -211,12 +224,12 @@ When registered as an AMSI provider, the DLL integrates with Windows:
 | 3 | Entropy check doesn't block | Medium | Design flaw |
 | 4 | Only 7 signature strings | High | Coverage gap |
 | 5 | No deobfuscation engine | High | Evasion gap |
-| 6 | No Unicode normalization | High | Encoding gap |
+| 6 | No Unicode normalisation | High | Encoding gap |
 | 7 | No archive/container scanning | Medium | Coverage gap |
 | 8 | No PE/ELF structural analysis | High | Analysis gap |
 | 9 | Global ratio instead of per-section | Medium | Precision gap |
 | 10 | 64-byte minimum for ratio check | Medium | Threshold gap |
-| 11 | No behavioral analysis/sandboxing | High | Architecture gap |
+| 11 | No behavioural analysis/sandboxing | High | Architecture gap |
 | 12 | User-space AMSI (memory accessible) | High | Platform limitation |
 
 ---

