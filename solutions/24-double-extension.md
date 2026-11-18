@@ -49,6 +49,7 @@ Copy-Item ".\payload.exe" -Destination ".\song.mp3.scr"
 
 ```powershell
 # Use Resource Hacker or rcedit to embed a PDF icon into the EXE
+# Alternative: Resource Cracker https://www.pelock.com/products/resource-cracker
 # This makes it look like a real PDF in Explorer
 
 # Using rcedit (Node.js tool):
